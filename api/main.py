@@ -1,14 +1,16 @@
+import os
+import hashlib
+from datetime import datetime
+from pathlib import Path
 from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi.responses import HTMLResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, func
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
-import hashlib
-from datetime import datetime
 import uvicorn
 
-# ⚠️ WARNING: /tmp is writable on Vercel, but data is erased between serverless invocations.
-# For production, replace this with a cloud database (e.g., Vercel Postgres, Supabase).
-SQLALCHEMY_DATABASE_URL = "sqlite:////tmp/flappybird.db"
+# Database setup
+SQLALCHEMY_DATABASE_URL = "sqlite:///./flappybird.db"
 engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
@@ -35,7 +37,6 @@ class Score(Base):
     score = Column(Integer)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-# Initialize database tables
 Base.metadata.create_all(bind=engine)
 
 def get_db():
@@ -55,7 +56,11 @@ def get_current_user(
     password = credentials.password
     
     if not password:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Password required", headers={"WWW-Authenticate": "Basic"})
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Password required",
+            headers={"WWW-Authenticate": "Basic"},
+        )
     
     user = db.query(User).filter(User.username == username).first()
     
@@ -66,11 +71,23 @@ def get_current_user(
         db.refresh(user)
     else:
         if not verify_password(password, user.hashed_password):
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect password", headers={"WWW-Authenticate": "Basic"})
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Incorrect password",
+                headers={"WWW-Authenticate": "Basic"},
+            )
     return user
 
-# This 'app' variable is required by Vercel
 app = FastAPI(title="Flappy Bird API")
+
+# ✅ NEW: Serve the HTML game at the root URL "/"
+@app.get("/", response_class=HTMLResponse)
+async def serve_game():
+    # Looks for index.html in the parent directory (the root of your project)
+    html_file = Path(__file__).parent.parent / "index.html"
+    if not html_file.exists():
+        return HTMLResponse(content="<h1>index.html not found. Make sure it is in the project root folder.</h1>", status_code=404)
+    return html_file.read_text(encoding="utf-8")
 
 @app.get("/api/stats")
 def get_user_stats(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -102,8 +119,12 @@ def get_leaderboard(db: Session = Depends(get_db)):
      .order_by(subquery.c.max_score.desc())\
      .limit(10).all()
 
-    return [{"username": r[0], "max_score": r[1], "last_run": r[2].isoformat() if r[2] else None} for r in results]
+    return [{
+        "username": r[0], 
+        "max_score": r[1],
+        "last_run": r[2].isoformat() if r[2] else None
+    } for r in results]
+
 if __name__ == "__main__":
-    import os
     port = int(os.environ.get("PORT", 8000))
-    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False)
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
