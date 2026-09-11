@@ -1,3 +1,8 @@
+from a2wsgi import ASGIMiddleware
+from api.main import app
+
+# This wraps your FastAPI (ASGI) app so PythonAnywhere (WSGI) can run it
+application = ASGIMiddleware(app)
 <!DOCTYPE html>
 <html lang="en">
 <head>
